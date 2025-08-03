@@ -19,6 +19,7 @@
 .DS_Store
 *.pem
 /.bolt/
+/rsc/
 
 # debug
 npm-debug.log*

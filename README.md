@@ -1,6 +1,6 @@
 # GTM Site-Speed Auditor
 
-A **Next.js 13 + Tailwind** web app that simulates Google Tag Manager (GTM) performance audits for a list of URLs. The UI colour-codes metrics, exports results to CSV, and provides aggregated summaries.
+A **Next.js 13 + Tailwind** web app that performs Google Tag Manager (GTM) performance audits for a list of URLs **using Lighthouse in headless Chrome**. The UI colour-codes metrics, exports results to CSV, and provides aggregated summaries.
 
 ![Screenshot](docs/screenshot.png)
 
@@ -20,7 +20,7 @@ A **Next.js 13 + Tailwind** web app that simulates Google Tag Manager (GTM) perf
 
 ## 1  Features
 • Paste multiple URLs; audits run sequentially with progress bar & ETA  
-• Synthetic performance data (placeholder for Lighthouse / PSI integration)  
+• Runs a real Lighthouse audit in headless Chrome for each URL  
 • Good / Warning / Critical thresholds with legend  
 • CSV export & summary dashboard  
 • Fully typed (TypeScript) and accessible (Radix + shadcn/ui)
@@ -34,7 +34,7 @@ A **Next.js 13 + Tailwind** web app that simulates Google Tag Manager (GTM) perf
 | Styling          | Tailwind CSS, shadcn/ui, Radix UI      |
 | Icons            | lucide-react                           |
 | State & Forms    | React Hook Form, Zod (optional)        |
-| API              | Next.js Route Handlers (`app/api/*`)   |
+| API              | Next.js Route Handlers (`app/api/*`) + Lighthouse + chrome-launcher |
 | Utilities        | clsx + tailwind-merge, date-fns        |
 | Tooling          | ESLint, Prettier, TypeScript           |
 
@@ -42,12 +42,18 @@ A **Next.js 13 + Tailwind** web app that simulates Google Tag Manager (GTM) perf
 
 ## 3  Quick Start
 
+### Prerequisites
+* **Node.js ≥ 20**
+* **Google Chrome (stable) installed locally** – `chrome-launcher` will auto-detect the binary.
+
+
 ```bash
 # 1. Install dependencies
 npm ci          # or pnpm install / yarn
 
 # 2. Run in dev mode
 npm run dev     # http://localhost:3000
+#   If audits fail, make sure Chrome is installed and not blocked by sandbox flags.
 
 # 3. Production build & start
 npm run build
@@ -69,6 +75,7 @@ gtm-site-speed/
 ├─ public/             # Static assets (add screenshots here)
 ├─ tailwind.config.ts  # Tailwind theme (CSS variables)
 ├─ next.config.js
+│  └─ api/audit/route.ts   # Serverless endpoint (real Lighthouse audit)
 └─ ...
 ```
 
@@ -79,7 +86,7 @@ gtm-site-speed/
 | Setting | File | Description |
 |---------|------|-------------|
 | Performance thresholds | `app/page.tsx` → `getPerformanceStatus()` | Tweak warning / critical cut-offs |
-| Synthetic metric ranges | `app/api/audit/route.ts` | Adjust `generateRealisticMetrics()` or replace with real Lighthouse call |
+| Lighthouse flags | `app/api/audit/route.ts` | Edit `chromeFlags` array if Chrome fails to launch (e.g. replace `--headless=new` with `--headless`) |
 | Tailwind theme colours | `tailwind.config.ts` | Uses CSS variables for easy theming |
 | Environment variables | `.env.local` (none required by default) |
 
@@ -114,7 +121,12 @@ fix(api): handle invalid URL error
 
 ---
 
-## 7  For AI Agents & CI
+## 7  Troubleshooting
+Common issues and fixes are documented in [`error-log.md`](./error-log.md).
+
+---
+
+## 8  For AI Agents & CI
 
 Automated tools can safely contribute by running:
 
@@ -131,5 +143,5 @@ Rules:
 
 ---
 
-## 8  License
+## 9  License
 MIT © 2025 Rajeev Gill

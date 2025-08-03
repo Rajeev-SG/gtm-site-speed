@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { v4 as uuidv4 } from 'uuid';
 // lighthouse and chrome-launcher are ESM-only. We'll import them dynamically when needed to avoid Next.js's CJS bundle issues.
 
 // Ensure the handler is not statically optimized and can run for longer periods.
@@ -13,6 +14,18 @@ const CHROME_FLAGS = [
   '--single-process',
   '--disable-dev-shm-usage',
 ];
+
+
+/**
+ * Creates a request-scoped logger with a consistent prefix.
+ */
+function createLogger(requestId: string) {
+  const prefix = `[AUDIT_API][${requestId}]`;
+  return {
+    info: (...args: unknown[]) => console.log(prefix, ...args),
+    error: (...args: unknown[]) => console.error(prefix, ...args),
+  } as const;
+}
 
 // -----------------------------
 // Type Definitions
@@ -81,25 +94,34 @@ function extractMetrics(lhr: any): Omit<AuditResult, 'url' | 'status' | 'error'>
 /**
  * Runs Lighthouse three times and returns averaged metrics for stability.
  */
-async function auditURL(url: string): Promise<Omit<AuditResult, 'url' | 'status' | 'error'>> {
+async function auditURL(url: string, logger: ReturnType<typeof createLogger>): Promise<Omit<AuditResult, 'url' | 'status' | 'error'>> {
   const [{ default: lighthouse }, { launch }] = await Promise.all([
     import(/* webpackIgnore: true */ 'lighthouse'),
     import(/* webpackIgnore: true */ 'chrome-launcher'),
   ]);
 
-  const chrome = await launch({ chromeFlags: CHROME_FLAGS });
+  logger.info('Starting auditURL for', url);
+const auditStart = Date.now();
+const chrome = await launch({ chromeFlags: CHROME_FLAGS });
   const runs: Array<GtmMetric[]> = [];
   const numberOfRuns = 3;
 
   try {
     for (let i = 0; i < numberOfRuns; i++) {
+      logger.info(`Starting Lighthouse run ${i + 1}/${numberOfRuns} for ${url}`);
+      const runStart = Date.now();
       const runnerResult = await lighthouse(url, {
         port: chrome.port,
         onlyAudits: ['bootup-time'],
         output: 'json',
       });
       const { lhr } = runnerResult as any;
-      runs.push(extractMetrics(lhr).gtmMetrics);
+      const metrics = extractMetrics(lhr).gtmMetrics;
+      runs.push(metrics);
+      logger.info(
+        `Finished Lighthouse run ${i + 1}/${numberOfRuns} in ${((Date.now() - runStart) / 1000).toFixed(1)}s`,
+      );
+      logger.info('Extracted metrics:', metrics);
     }
   } finally {
     await chrome.kill();
@@ -136,6 +158,8 @@ async function auditURL(url: string): Promise<Omit<AuditResult, 'url' | 'status'
     });
   });
 
+    logger.info('Averaged metrics:', averaged);
+  logger.info(`auditURL for ${url} took ${((Date.now() - auditStart) / 1000).toFixed(2)}s`);
   return { gtmMetrics: averaged };
 }
 
@@ -146,6 +170,10 @@ async function auditURL(url: string): Promise<Omit<AuditResult, 'url' | 'status'
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({ url: null }));
   const { url } = body;
+  const requestId = uuidv4();
+  const logger = createLogger(requestId);
+  const requestStart = Date.now();
+  logger.info('Received POST request', { url, timestamp: new Date().toISOString() });
 
   if (!url || typeof url !== 'string') {
     return NextResponse.json({ error: 'URL is required and must be a string' }, { status: 400 });
@@ -166,11 +194,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { gtmMetrics } = await auditURL(url);
+    const { gtmMetrics } = await auditURL(url, logger);
+    const totalMs = Date.now() - requestStart;
+    logger.info(`Completed request in ${totalMs}ms`);
     return NextResponse.json({ url, status: 'success', gtmMetrics } as AuditResult);
   } catch (err: unknown) {
+    logger.error('Error processing request:', err instanceof Error ? err.stack : err);
     const message = err instanceof Error ? err.message : String(err);
-    console.error('[auditURL] lighthouse failed:', message);
     return NextResponse.json(
       {
         url,

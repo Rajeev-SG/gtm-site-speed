@@ -22,6 +22,7 @@ A **Next.js 13 + Tailwind** web app that performs Google Tag Manager (GTM) perfo
 • Paste multiple URLs; audits run sequentially with progress bar & ETA  
 • **Per-container GTM metrics** – one row per container ID (e.g. `GTM-XXXX`)  
 • Runs a real Lighthouse audit in headless Chrome for each URL  
+• **Detailed server-side logging** – each API request is tagged with a UUID; logs include timings for audit and each Lighthouse run  
 • Good / Warning / Critical thresholds with legend  
 • CSV export, per-container summaries, and changelog dashboard  
 • Fully typed (TypeScript) and accessible (Radix + shadcn/ui)
@@ -37,6 +38,7 @@ A **Next.js 13 + Tailwind** web app that performs Google Tag Manager (GTM) perfo
 | State & Forms    | React Hook Form, Zod (optional)        |
 | API              | Next.js Route Handlers (`app/api/*`) + Lighthouse + chrome-launcher |
 | Utilities        | clsx + tailwind-merge, date-fns        |
+| Logging          | Console (structured) + uuid            |
 | Tooling          | ESLint, Prettier, TypeScript           |
 
 ---
@@ -68,15 +70,14 @@ npm start
 gtm-site-speed/
 ├─ app/                # Next.js pages & API routes
 │  ├─ page.tsx         # Main GTMPerformanceAuditor UI
-│  └─ api/audit/route.ts   # Serverless endpoint (simulated metrics)
+│  └─ api/audit/route.ts   # Lighthouse audit API route
 ├─ components/
 │  └─ ui/*             # Reusable shadcn + Radix UI wrappers
 ├─ hooks/              # Custom React hooks
 ├─ lib/                # Utility helpers (e.g. cn())
 ├─ public/             # Static assets (add screenshots here)
 ├─ tailwind.config.ts  # Tailwind theme (CSS variables)
-├─ next.config.js
-│  └─ api/audit/route.ts   # Serverless endpoint (real Lighthouse audit)
+├─ next.config.js      # Next.js configuration
 └─ ...
 ```
 
@@ -147,6 +148,7 @@ Rules:
 ## 9  Recent Changes (2025-08-03)
 
 ### API & Backend
+- **Structured logging added** – `audit/route.ts` now generates per-request UUIDs and logs start/end times, per-run durations, and averaged metrics.
 - **Per-container metrics** – `extractMetrics` now returns an array of `gtmMetrics`, one entry per GTM container, instead of a single aggregate.
 - **Removed `blockingTime`** – dropped because Lighthouse does not expose per-script blocking time; thresholds updated accordingly.
 - **Legacy code purged** – deleted duplicate `extractMetrics`, `auditURL`, and extra `POST` handler that broke the build.

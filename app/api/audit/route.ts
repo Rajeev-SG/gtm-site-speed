@@ -4,98 +4,145 @@ import { NextRequest, NextResponse } from 'next/server';
 // Ensure the handler is not statically optimized and can run for longer periods.
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Set max duration to 60 seconds for Vercel
-// Chrome flags reused across runs for serverless reliability
-const CHROME_FLAGS = ['--headless=new', '--no-sandbox', '--no-zygote', '--single-process', '--disable-dev-shm-usage'];
 
-// This interface must match the one used in `app/page.tsx`
-interface AuditResult {
-  url: string;
-  blockingTime: number;
+// Chrome flags reused across runs for serverless reliability
+const CHROME_FLAGS = [
+  '--headless=new',
+  '--no-sandbox',
+  '--no-zygote',
+  '--single-process',
+  '--disable-dev-shm-usage',
+];
+
+// -----------------------------
+// Type Definitions
+// -----------------------------
+
+/**
+ * Metrics for a single GTM container.
+ */
+interface GtmMetric {
+  containerId: string;
   totalCpuTime: number;
   scriptEvaluation: number;
   scriptParseTime: number;
+}
+
+/**
+ * API response shape. Must stay in sync with the frontend.
+ */
+interface AuditResult {
+  url: string;
   status: 'success' | 'error';
   error?: string;
+  gtmMetrics: GtmMetric[];
 }
 
+// -----------------------------
+// Helpers
+// -----------------------------
+
 /**
- * Extracts GTM-specific metrics from Lighthouse results combining both
- * `third-party-summary` and `bootup-time` audits.
+ * Extracts GTM-specific metrics from Lighthouse results, returning one entry per
+ * container. Uses the `bootup-time` audit because it provides per-script CPU
+ * usage.
  */
 function extractMetrics(lhr: any): Omit<AuditResult, 'url' | 'status' | 'error'> {
-  const thirdPartyItems = lhr.audits['third-party-summary']?.details?.items ?? [];
   const bootupItems = lhr.audits['bootup-time']?.details?.items ?? [];
+  const gtmMetrics: GtmMetric[] = [];
+  const gtmRegex = /gtm\.js\?id=(GTM-[A-Z0-9]+)/;
 
-  const isGTM = (i: any) =>
-    i?.entity?.text?.includes('Google Tag Manager') ||
-    (typeof i?.entity === 'string' && i.entity.includes('Google Tag Manager')) ||
-    (i.url && typeof i.url === 'string' && i.url.includes('googletagmanager.com'));
+  for (const item of bootupItems) {
+    if (typeof item.url !== 'string') continue;
+    const match = item.url.match(gtmRegex);
+    if (!match) continue;
 
-  const gtmItem = thirdPartyItems.find(isGTM);
-  const gtmBoot = bootupItems.find((i: any) => i.url?.includes('googletagmanager.com'));
+    const containerId = match[1];
+    gtmMetrics.push({
+      containerId,
+      // `total` is the total CPU time spent in that script.
+      totalCpuTime: item.total ?? 0,
+      // `scripting` covers evaluation.
+      scriptEvaluation: item.scripting ?? 0,
+      // `scriptParseCompile` covers parsing/compilation.
+      scriptParseTime: item.scriptParseCompile ?? 0,
+    });
+  }
 
-  if (!gtmItem) throw new Error('Google Tag Manager not found on this page by Lighthouse.');
+  if (gtmMetrics.length === 0) {
+    throw new Error(
+      'No Google Tag Manager container scripts (gtm.js) found on this page by Lighthouse.',
+    );
+  }
 
-  return {
-    blockingTime: gtmItem.blockingTime || 0,
-    totalCpuTime: gtmItem.mainThreadTime || 0,
-    scriptEvaluation: gtmBoot?.scripting || 0,
-    scriptParseTime: gtmBoot?.scriptParseCompile || 0,
-  };
+  return { gtmMetrics };
 }
 
 /**
- * @deprecated Use `auditURL` instead. This thin wrapper is kept for backward compatibility.
+ * Runs Lighthouse three times and returns averaged metrics for stability.
  */
-async function auditOnce(url: string): Promise<Omit<AuditResult, 'url' | 'status' | 'error'>> {
-  return auditURL(url);
-}
-
-/**
- * Runs the audit 3 times and averages the results for stability.
- */
-type Run = ReturnType<typeof extractMetrics>;
-
 async function auditURL(url: string): Promise<Omit<AuditResult, 'url' | 'status' | 'error'>> {
-  // Dynamically import ESM-only deps once for all runs to save startup time.
   const [{ default: lighthouse }, { launch }] = await Promise.all([
     import(/* webpackIgnore: true */ 'lighthouse'),
     import(/* webpackIgnore: true */ 'chrome-launcher'),
   ]);
 
   const chrome = await launch({ chromeFlags: CHROME_FLAGS });
+  const runs: Array<GtmMetric[]> = [];
   const numberOfRuns = 3;
-  const runs: Array<Omit<AuditResult, 'url' | 'status' | 'error'>> = [];
 
   try {
     for (let i = 0; i < numberOfRuns; i++) {
       const runnerResult = await lighthouse(url, {
         port: chrome.port,
-        onlyAudits: ['third-party-summary', 'bootup-time'],
+        onlyAudits: ['bootup-time'],
         output: 'json',
       });
       const { lhr } = runnerResult as any;
-      runs.push(extractMetrics(lhr));
+      runs.push(extractMetrics(lhr).gtmMetrics);
     }
   } finally {
     await chrome.kill();
   }
 
-  const mean = <K extends keyof Run>(key: K) =>
-    runs.reduce((sum, current) => sum + current[key], 0) / numberOfRuns;
+  // Aggregate & average across runs per container ID.
+  const aggregated = new Map<
+    string,
+    { total: number[]; eval: number[]; parse: number[] }
+  >();
 
-  return {
-    blockingTime: Math.round(mean('blockingTime')),
-    totalCpuTime: Math.round(mean('totalCpuTime')),
-    scriptEvaluation: Math.round(mean('scriptEvaluation')),
-    scriptParseTime: Math.round(mean('scriptParseTime')),
-  };
+  for (const run of runs) {
+    for (const metric of run) {
+      if (!aggregated.has(metric.containerId)) {
+        aggregated.set(metric.containerId, { total: [], eval: [], parse: [] });
+      }
+      const entry = aggregated.get(metric.containerId)!;
+      entry.total.push(metric.totalCpuTime);
+      entry.eval.push(metric.scriptEvaluation);
+      entry.parse.push(metric.scriptParseTime);
+    }
+  }
+
+  const mean = (arr: number[]) =>
+    arr.reduce((sum, v) => sum + v, 0) / (arr.length || 1);
+
+  const averaged: GtmMetric[] = [];
+  aggregated.forEach((data, containerId) => {
+    averaged.push({
+      containerId,
+      totalCpuTime: Math.round(mean(data.total)),
+      scriptEvaluation: Math.round(mean(data.eval)),
+      scriptParseTime: Math.round(mean(data.parse)),
+    });
+  });
+
+  return { gtmMetrics: averaged };
 }
 
-/**
- * The Next.js API route handler for POST requests.
- * This is the entry point for our API.
- */
+// -----------------------------
+// API Handler
+// -----------------------------
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({ url: null }));
   const { url } = body;
@@ -107,34 +154,31 @@ export async function POST(request: NextRequest) {
   try {
     new URL(url);
   } catch {
-    return NextResponse.json({
+    return NextResponse.json(
+      {
         url,
         status: 'error',
         error: 'Invalid URL format',
-    } as AuditResult, { status: 400 });
+        gtmMetrics: [],
+      } as AuditResult,
+      { status: 400 },
+    );
   }
 
   try {
-    const metrics = await auditURL(url);
-    const result: AuditResult = {
-      url,
-      ...metrics,
-      status: 'success',
-    };
-    return NextResponse.json(result);
-  } catch (error: unknown) {
-    console.error('[auditURL] lighthouse failed:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[Audit Error] for URL ${url}:`, errorMessage);
-    
-    return NextResponse.json({
-      url,
-      blockingTime: 0,
-      totalCpuTime: 0,
-      scriptEvaluation: 0,
-      scriptParseTime: 0,
-      status: 'error',
-      error: errorMessage,
-    } as AuditResult, { status: 500 });
+    const { gtmMetrics } = await auditURL(url);
+    return NextResponse.json({ url, status: 'success', gtmMetrics } as AuditResult);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[auditURL] lighthouse failed:', message);
+    return NextResponse.json(
+      {
+        url,
+        status: 'error',
+        error: message,
+        gtmMetrics: [],
+      } as AuditResult,
+      { status: 500 },
+    );
   }
 }

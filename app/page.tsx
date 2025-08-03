@@ -9,26 +9,38 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Download, Play, RotateCcw, AlertCircle, CheckCircle, Clock, TrendingUp } from 'lucide-react';
+import { Download, Play, RotateCcw, AlertCircle, CheckCircle, Clock, TrendingUp, Tag } from 'lucide-react';
 
-interface AuditResult {
-  url: string;
-  blockingTime: number;
+// -----------------------------
+// Types
+// -----------------------------
+
+interface GtmMetric {
+  containerId: string;
   totalCpuTime: number;
   scriptEvaluation: number;
   scriptParseTime: number;
+}
+
+interface AuditResult {
+  url: string;
   status: 'success' | 'error';
   error?: string;
+  gtmMetrics: GtmMetric[];
 }
 
 interface AuditSummary {
   totalUrls: number;
   successfulAudits: number;
-  averageBlockingTime: number;
+  totalContainers: number;
   averageCpuTime: number;
   averageScriptEval: number;
   averageParseTime: number;
 }
+
+// -----------------------------
+// Component
+// -----------------------------
 
 export default function GTMPerformanceAuditor() {
   const [urls, setUrls] = useState('');
@@ -42,21 +54,27 @@ export default function GTMPerformanceAuditor() {
   const [summary, setSummary] = useState<AuditSummary | null>(null);
   const [error, setError] = useState('');
 
+  // -------------------------
+  // Helpers
+  // -------------------------
+
   const validateUrls = (urlList: string[]): string[] => {
     const urlRegex = /^https?:\/\/.+/;
-    return urlList.filter(url => {
+    return urlList.filter((url) => {
       const trimmed = url.trim();
       return trimmed && urlRegex.test(trimmed);
     });
   };
 
-  const getPerformanceStatus = (value: number, metric: 'blocking' | 'cpu' | 'script'): 'good' | 'warning' | 'critical' => {
+  const getPerformanceStatus = (
+    value: number,
+    metric: 'cpu' | 'script',
+  ): 'good' | 'warning' | 'critical' => {
     const thresholds = {
-      blocking: { warning: 100, critical: 300 },
       cpu: { warning: 500, critical: 1000 },
-      script: { warning: 200, critical: 500 }
-    };
-    
+      script: { warning: 200, critical: 500 },
+    } as const;
+
     const threshold = thresholds[metric];
     if (value <= threshold.warning) return 'good';
     if (value <= threshold.critical) return 'warning';
@@ -65,40 +83,51 @@ export default function GTMPerformanceAuditor() {
 
   const getStatusColor = (status: 'good' | 'warning' | 'critical'): string => {
     switch (status) {
-      case 'good': return 'text-green-600 bg-green-50';
-      case 'warning': return 'text-yellow-600 bg-yellow-50';
-      case 'critical': return 'text-red-600 bg-red-50';
+      case 'good':
+        return 'text-green-600 bg-green-50';
+      case 'warning':
+        return 'text-yellow-600 bg-yellow-50';
+      case 'critical':
+        return 'text-red-600 bg-red-50';
     }
   };
 
   const calculateSummary = (results: AuditResult[]): AuditSummary => {
-    const successfulResults = results.filter(r => r.status === 'success');
-    const total = successfulResults.length;
-    
-    if (total === 0) {
+    const successfulResults = results.filter((r) => r.status === 'success');
+    const allGtmMetrics = successfulResults.flatMap((r) => r.gtmMetrics);
+    const totalContainers = allGtmMetrics.length;
+
+    if (totalContainers === 0) {
       return {
         totalUrls: results.length,
-        successfulAudits: 0,
-        averageBlockingTime: 0,
+        successfulAudits: successfulResults.length,
+        totalContainers: 0,
         averageCpuTime: 0,
         averageScriptEval: 0,
-        averageParseTime: 0
+        averageParseTime: 0,
       };
     }
 
+    const mean = (arr: number[]) =>
+      Math.round(arr.reduce((sum, v) => sum + v, 0) / arr.length);
+
     return {
       totalUrls: results.length,
-      successfulAudits: total,
-      averageBlockingTime: Math.round(successfulResults.reduce((sum, r) => sum + r.blockingTime, 0) / total),
-      averageCpuTime: Math.round(successfulResults.reduce((sum, r) => sum + r.totalCpuTime, 0) / total),
-      averageScriptEval: Math.round(successfulResults.reduce((sum, r) => sum + r.scriptEvaluation, 0) / total),
-      averageParseTime: Math.round(successfulResults.reduce((sum, r) => sum + r.scriptParseTime, 0) / total)
+      successfulAudits: successfulResults.length,
+      totalContainers,
+      averageCpuTime: mean(allGtmMetrics.map((m) => m.totalCpuTime)),
+      averageScriptEval: mean(allGtmMetrics.map((m) => m.scriptEvaluation)),
+      averageParseTime: mean(allGtmMetrics.map((m) => m.scriptParseTime)),
     };
   };
 
+  // -------------------------
+  // Actions
+  // -------------------------
+
   const startAudit = useCallback(async () => {
     setError('');
-    const urlList = urls.split('\n').map(url => url.trim()).filter(Boolean);
+    const urlList = urls.split('\n').map((u) => u.trim()).filter(Boolean);
     const validUrls = validateUrls(urlList);
 
     if (validUrls.length === 0) {
@@ -107,7 +136,9 @@ export default function GTMPerformanceAuditor() {
     }
 
     if (validUrls.length !== urlList.length) {
-      setError(`${urlList.length - validUrls.length} invalid URLs were removed. Only valid URLs starting with http:// or https:// will be audited.`);
+      setError(
+        `${urlList.length - validUrls.length} invalid URLs were removed. Only valid URLs starting with http:// or https:// will be audited.`,
+      );
     }
 
     setIsAuditing(true);
@@ -115,7 +146,7 @@ export default function GTMPerformanceAuditor() {
     setResults([]);
     setSummary(null);
     setTotalUrls(validUrls.length);
-    setEstimatedTimeRemaining(validUrls.length * 10);
+    setEstimatedTimeRemaining(validUrls.length * 20); // rough estimate (20s per URL)
 
     const newResults: AuditResult[] = [];
     const startTime = Date.now();
@@ -124,35 +155,32 @@ export default function GTMPerformanceAuditor() {
       const url = validUrls[i];
       setCurrentUrl(url);
       setCurrentIndex(i + 1);
-      
-      // Update estimated time remaining
+
+      // update ETA
       const elapsed = (Date.now() - startTime) / 1000;
-      const averageTimePerUrl = elapsed / (i + 1);
-      const remaining = Math.max(0, Math.round((validUrls.length - i - 1) * averageTimePerUrl));
-      setEstimatedTimeRemaining(remaining);
+      const avgPerUrl = elapsed / (i + 1);
+      setEstimatedTimeRemaining(Math.max(0, Math.round((validUrls.length - i - 1) * avgPerUrl)));
 
       try {
         const response = await fetch('/api/audit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url })
+          body: JSON.stringify({ url }),
         });
 
+        const result: AuditResult = await response.json();
+
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          throw new Error(result.error || `HTTP ${response.status}`);
         }
 
-        const result = await response.json();
         newResults.push(result);
       } catch (err) {
         newResults.push({
           url,
-          blockingTime: 0,
-          totalCpuTime: 0,
-          scriptEvaluation: 0,
-          scriptParseTime: 0,
+          gtmMetrics: [],
           status: 'error',
-          error: err instanceof Error ? err.message : 'Unknown error'
+          error: err instanceof Error ? err.message : 'Unknown error',
         });
       }
 
@@ -169,21 +197,43 @@ export default function GTMPerformanceAuditor() {
   const exportToCSV = () => {
     const timestamp = new Date().toISOString().split('T')[0];
     const filename = `gtm-audit-${timestamp}.csv`;
-    
-    const headers = ['URL', 'Blocking Time (ms)', 'Total CPU Time (ms)', 'Script Evaluation (ms)', 'Script Parse Time (ms)', 'Status', 'Error'];
-    const csvContent = [
-      headers.join(','),
-      ...results.map(result => [
-        `"${result.url}"`,
-        result.blockingTime,
-        result.totalCpuTime,
-        result.scriptEvaluation,
-        result.scriptParseTime,
-        result.status,
-        `"${result.error || ''}"`
-      ].join(','))
-    ].join('\n');
 
+    const headers = [
+      'URL',
+      'Container ID',
+      'Total CPU Time (ms)',
+      'Script Evaluation (ms)',
+      'Script Parse Time (ms)',
+      'Status',
+      'Error',
+    ];
+
+    const rows = results.flatMap((result) => {
+      if (result.status === 'error' || result.gtmMetrics.length === 0) {
+        return [
+          [
+            `"${result.url}"`,
+            '-',
+            '-',
+            '-',
+            '-',
+            result.status,
+            `"${result.error || ''}"`,
+          ].join(','),
+        ];
+      }
+      return result.gtmMetrics.map((metric) => [
+        `"${result.url}"`,
+        metric.containerId,
+        metric.totalCpuTime,
+        metric.scriptEvaluation,
+        metric.scriptParseTime,
+        result.status,
+        '""',
+      ].join(','));
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -210,6 +260,10 @@ export default function GTMPerformanceAuditor() {
     return `${mins}m ${secs}s`;
   };
 
+  // -------------------------
+  // Render
+  // -------------------------
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <div className="mx-auto max-w-7xl space-y-8">
@@ -222,7 +276,7 @@ export default function GTMPerformanceAuditor() {
             <h1 className="text-4xl font-bold text-slate-900">GTM Performance Auditor</h1>
           </div>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-            Analyze Google Tag Manager performance across multiple URLs to identify blocking times, CPU usage, and script execution metrics.
+            Analyze Google Tag Manager performance across multiple URLs to identify CPU usage and script execution metrics for each container.
           </p>
         </div>
 
@@ -239,15 +293,17 @@ export default function GTMPerformanceAuditor() {
           </CardHeader>
           <CardContent className="space-y-4">
             <Textarea
-              placeholder="Enter URLs to audit (one per line)&#10;https://example.com&#10;https://another-site.com&#10;https://third-site.com"
+              placeholder={
+                'Enter URLs to audit (one per line)\nhttps://example.com\nhttps://another-site.com\nhttps://third-site.com'
+              }
               value={urls}
               onChange={(e) => setUrls(e.target.value)}
               className="min-h-32 resize-none font-mono text-sm"
               disabled={isAuditing}
             />
             <div className="flex gap-3">
-              <Button 
-                onClick={startAudit} 
+              <Button
+                onClick={startAudit}
                 disabled={isAuditing || !urls.trim()}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6"
               >
@@ -255,11 +311,7 @@ export default function GTMPerformanceAuditor() {
                 {isAuditing ? 'Auditing...' : 'Start GTM Performance Audit'}
               </Button>
               {(results.length > 0 || error) && (
-                <Button 
-                  variant="outline" 
-                  onClick={clearResults}
-                  disabled={isAuditing}
-                >
+                <Button variant="outline" onClick={clearResults} disabled={isAuditing}>
                   <RotateCcw className="w-4 h-4 mr-2" />
                   Clear Results
                 </Button>
@@ -291,14 +343,16 @@ export default function GTMPerformanceAuditor() {
               </div>
               <Progress value={progress} className="h-2" />
               <div className="flex justify-between text-sm text-slate-600">
-                <span>Currently auditing: <span className="font-mono text-blue-600">{currentUrl}</span></span>
+                <span>
+                  Currently auditing: <span className="font-mono text-blue-600">{currentUrl}</span>
+                </span>
                 <span>Est. time remaining: {formatTime(estimatedTimeRemaining)}</span>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Summary Section */}
+        {/* Summary */}
         {summary && (
           <Card className="shadow-lg border-0 bg-white">
             <CardHeader className="pb-4">
@@ -317,9 +371,9 @@ export default function GTMPerformanceAuditor() {
                   <div className="text-2xl font-bold text-green-600">{summary.successfulAudits}</div>
                   <div className="text-sm text-slate-600">Successful</div>
                 </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <div className="text-2xl font-bold text-blue-600">{summary.averageBlockingTime}ms</div>
-                  <div className="text-sm text-slate-600">Avg Blocking</div>
+                <div className="text-center p-4 bg-indigo-50 rounded-lg">
+                  <div className="text-2xl font-bold text-indigo-600">{summary.totalContainers}</div>
+                  <div className="text-sm text-slate-600">Total Containers</div>
                 </div>
                 <div className="text-center p-4 bg-purple-50 rounded-lg">
                   <div className="text-2xl font-bold text-purple-600">{summary.averageCpuTime}ms</div>
@@ -338,7 +392,7 @@ export default function GTMPerformanceAuditor() {
           </Card>
         )}
 
-        {/* Results Section */}
+        {/* Results */}
         {results.length > 0 && (
           <Card className="shadow-lg border-0 bg-white">
             <CardHeader className="pb-4">
@@ -355,8 +409,8 @@ export default function GTMPerformanceAuditor() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-64">URL</TableHead>
-                      <TableHead className="text-center">Blocking Time (ms)</TableHead>
+                      <TableHead className="min-w-[200px]">URL</TableHead>
+                      <TableHead className="min-w-[150px]">Container ID</TableHead>
                       <TableHead className="text-center">Total CPU Time (ms)</TableHead>
                       <TableHead className="text-center">Script Evaluation (ms)</TableHead>
                       <TableHead className="text-center">Script Parse Time (ms)</TableHead>
@@ -364,74 +418,109 @@ export default function GTMPerformanceAuditor() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {results.map((result, index) => (
-                      <TableRow key={index} className="hover:bg-slate-50">
-                        <TableCell className="font-mono text-sm max-w-64 truncate" title={result.url}>
-                          {result.url}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {result.status === 'success' ? (
-                            <span className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(getPerformanceStatus(result.blockingTime, 'blocking'))}`}>
-                              {result.blockingTime}
-                            </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {result.status === 'success' ? (
-                            <span className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(getPerformanceStatus(result.totalCpuTime, 'cpu'))}`}>
-                              {result.totalCpuTime}
-                            </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {result.status === 'success' ? (
-                            <span className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(getPerformanceStatus(result.scriptEvaluation, 'script'))}`}>
-                              {result.scriptEvaluation}
-                            </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {result.status === 'success' ? (
-                            <span className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(getPerformanceStatus(result.scriptParseTime, 'script'))}`}>
-                              {result.scriptParseTime}
-                            </span>
-                          ) : '-'}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {result.status === 'success' ? (
-                            <Badge variant="secondary" className="bg-green-100 text-green-800">Success</Badge>
-                          ) : (
-                            <Badge variant="destructive" title={result.error}>Error</Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {results.map((result, index) =>
+                      result.status === 'success' && result.gtmMetrics.length > 0 ? (
+                        result.gtmMetrics.map((metric, metricIndex) => (
+                          <TableRow key={`${index}-${metricIndex}`} className="hover:bg-slate-50">
+                            <TableCell
+                              className="font-mono text-sm max-w-xs truncate"
+                              title={result.url}
+                            >
+                              {metricIndex === 0 ? result.url : ''}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              <div className="flex items-center gap-2">
+                                <Tag className="w-4 h-4 text-slate-500" />
+                                {metric.containerId}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span
+                                className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                                  getPerformanceStatus(metric.totalCpuTime, 'cpu'),
+                                )}`}
+                              >
+                                {metric.totalCpuTime}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span
+                                className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                                  getPerformanceStatus(metric.scriptEvaluation, 'script'),
+                                )}`}
+                              >
+                                {metric.scriptEvaluation}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span
+                                className={`px-2 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                                  getPerformanceStatus(metric.scriptParseTime, 'script'),
+                                )}`}
+                              >
+                                {metric.scriptParseTime}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {metricIndex === 0 && (
+                                <Badge variant="secondary" className="bg-green-100 text-green-800">
+                                  Success
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow key={index} className="bg-red-50/50">
+                          <TableCell
+                            className="font-mono text-sm max-w-xs truncate"
+                            title={result.url}
+                          >
+                            {result.url}
+                          </TableCell>
+                          <TableCell colSpan={4} className="text-center text-red-700">
+                            {result.error || 'Audit failed'}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="destructive" title={result.error}>
+                              Error
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ),
+                    )}
                   </TableBody>
                 </Table>
               </div>
-              
+
               {/* Performance Legend */}
               <Separator className="my-6" />
               <div className="space-y-3">
                 <h4 className="font-medium text-slate-900">Performance Thresholds</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div className="space-y-2">
-                    <div className="font-medium">Blocking Time</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span>≤100ms: Good</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span>101-300ms: Warning</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-red-500 rounded-full"></span>>300ms: Critical</div>
-                  </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div className="space-y-2">
                     <div className="font-medium">CPU Time</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span>≤500ms: Good</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span>501-1000ms: Warning</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-red-500 rounded-full"></span>>1000ms: Critical</div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-green-500 rounded-full"></span>≤500ms: Good
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-yellow-500 rounded-full"></span>501-1000ms: Warning
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-red-500 rounded-full"></span>›1000ms: Critical
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <div className="font-medium">Script Times</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-green-500 rounded-full"></span>≤200ms: Good</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-yellow-500 rounded-full"></span>201-500ms: Warning</div>
-                    <div className="flex items-center gap-2"><span className="w-3 h-3 bg-red-500 rounded-full"></span>>500ms: Critical</div>
+                    <div className="font-medium">Script Times (Evaluation / Parse)</div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-green-500 rounded-full"></span>≤200ms: Good
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-yellow-500 rounded-full"></span>201-500ms: Warning
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 bg-red-500 rounded-full"></span>›500ms: Critical
+                    </div>
                   </div>
                 </div>
               </div>

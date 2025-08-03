@@ -20,9 +20,10 @@ A **Next.js 13 + Tailwind** web app that performs Google Tag Manager (GTM) perfo
 
 ## 1  Features
 • Paste multiple URLs; audits run sequentially with progress bar & ETA  
+• **Per-container GTM metrics** – one row per container ID (e.g. `GTM-XXXX`)  
 • Runs a real Lighthouse audit in headless Chrome for each URL  
 • Good / Warning / Critical thresholds with legend  
-• CSV export & summary dashboard  
+• CSV export, per-container summaries, and changelog dashboard  
 • Fully typed (TypeScript) and accessible (Radix + shadcn/ui)
 
 ---
@@ -146,15 +147,20 @@ Rules:
 ## 9  Recent Changes (2025-08-03)
 
 ### API & Backend
-- **Unified audit flow** – removed the duplicate `auditOnce` logic; all metrics now go through `auditURL` which re-uses a single Chrome instance for three Lighthouse passes.
-- **Shared Chrome flags** – `CHROME_FLAGS` consolidates serverless-safe launch args (`--no-zygote`, `--single-process`, `--disable-dev-shm-usage`, etc.).
-- **Correct GTM metrics** – fixed key mapping from the `bootup-time` audit. We now read `scripting` and `scriptParseCompile`, so *Script Evaluation* and *Script Parse Time* populate correctly.
-- **Type-safety** – introduced `type Run = ReturnType<typeof extractMetrics>` and updated the generic `mean()` helper.
-- **Deprecation notice** – `auditOnce()` kept as a thin wrapper for backward compatibility and marked `/** @deprecated */`.
+- **Per-container metrics** – `extractMetrics` now returns an array of `gtmMetrics`, one entry per GTM container, instead of a single aggregate.
+- **Removed `blockingTime`** – dropped because Lighthouse does not expose per-script blocking time; thresholds updated accordingly.
+- **Legacy code purged** – deleted duplicate `extractMetrics`, `auditURL`, and extra `POST` handler that broke the build.
+- **Chrome flags consolidated** – `CHROME_FLAGS` covers serverless-safe launch args.
+- **Type-safety improvements** – simplified `mean()` and removed down-level iteration by switching to `Map.forEach()`.
+
+### Front-end
+- **UI rewritten** – results table shows one row per container with CPU, Script Eval, and Script Parse columns.
+- **CSV & summary updated** – now include `containerId` and per-container averages.
+- **Duplicate component removed** – eliminated old aggregate implementation.
 
 ### Docs & Misc
-- Added this **Changelog**.
-- Minor README typo fixes (duplicate route entry).
+- README updated to reflect per-container metrics.
+- Fixed TypeScript compiler error related to `Map` iteration.
 
 ---
 

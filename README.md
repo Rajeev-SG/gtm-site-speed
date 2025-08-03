@@ -143,5 +143,20 @@ Rules:
 
 ---
 
-## 9  License
+## 9  Recent Changes (2025-08-03)
+
+### API & Backend
+- **Unified audit flow** – removed the duplicate `auditOnce` logic; all metrics now go through `auditURL` which re-uses a single Chrome instance for three Lighthouse passes.
+- **Shared Chrome flags** – `CHROME_FLAGS` consolidates serverless-safe launch args (`--no-zygote`, `--single-process`, `--disable-dev-shm-usage`, etc.).
+- **Correct GTM metrics** – fixed key mapping from the `bootup-time` audit. We now read `scripting` and `scriptParseCompile`, so *Script Evaluation* and *Script Parse Time* populate correctly.
+- **Type-safety** – introduced `type Run = ReturnType<typeof extractMetrics>` and updated the generic `mean()` helper.
+- **Deprecation notice** – `auditOnce()` kept as a thin wrapper for backward compatibility and marked `/** @deprecated */`.
+
+### Docs & Misc
+- Added this **Changelog**.
+- Minor README typo fixes (duplicate route entry).
+
+---
+
+## 10  License
 MIT © 2025 Rajeev Gill

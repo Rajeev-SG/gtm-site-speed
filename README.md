@@ -68,17 +68,36 @@ npm start
 ## 4  Project Structure
 ```
 gtm-site-speed/
-├─ app/                # Next.js pages & API routes
-│  ├─ page.tsx         # Main GTMPerformanceAuditor UI
-│  └─ api/audit/route.ts   # Lighthouse audit API route
-├─ components/
-│  └─ ui/*             # Reusable shadcn + Radix UI wrappers
-├─ hooks/              # Custom React hooks
-├─ lib/                # Utility helpers (e.g. cn())
-├─ public/             # Static assets (add screenshots here)
-├─ tailwind.config.ts  # Tailwind theme (CSS variables)
-├─ next.config.js      # Next.js configuration
-└─ ...
+├─ app/                    # Next.js App Router directory
+│  ├─ api/
+│  │   └─ audit/route.ts   # Lighthouse audit API route
+│  ├─ globals.css          # Tailwind base styles
+│  ├─ layout.tsx           # Root layout (theme provider etc.)
+│  └─ page.tsx             # GTMPerformanceAuditor UI
+│
+├─ components/             # Reusable UI primitives (shadcn + Radix)
+│  └─ ui/                  # shadcn/ui components (47 components)
+├─ hooks/                  # Custom React hooks (e.g. use-toast)
+├─ lib/                    # Utility helpers (e.g. cn())
+├─ docs/                   # Documentation assets (e.g. screenshots)
+├─ rsc/                    # Internal notes / improvement ideas
+│
+├─ .bolt/                  # Bolt configuration
+├─ .dockerignore           # Docker ignore patterns
+├─ .eslintrc.json          # ESLint configuration
+├─ .gitignore              # Git ignore patterns
+├─ components.json         # shadcn/ui component configuration
+├─ Dockerfile              # Docker container configuration
+├─ dockerissues.md         # Docker troubleshooting guide
+├─ error-log.md            # Error troubleshooting documentation
+├─ next-env.d.ts           # Next.js TypeScript definitions
+├─ next.config.js          # Next.js configuration
+├─ package.json            # Dependencies & scripts
+├─ package-lock.json       # Locked dependency versions
+├─ postcss.config.js       # PostCSS configuration
+├─ tailwind.config.ts      # Tailwind theme configuration
+├─ tsconfig.json           # TypeScript compiler options
+└─ README.md               # This file
 ```
 
 ---

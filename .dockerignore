@@ -1,0 +1,7 @@
+# Prevent host artefacts from polluting the image
+Dockerfile
+.dockerignore
+node_modules
+.next
+npm-debug.log
+.git

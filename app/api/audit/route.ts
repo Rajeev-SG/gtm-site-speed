@@ -8,11 +8,12 @@ export const maxDuration = 60; // Set max duration to 60 seconds for Vercel
 
 // Chrome flags reused across runs for serverless reliability
 const CHROME_FLAGS = [
-  '--headless=new',
+  '--headless',
+  '--disable-gpu',
   '--no-sandbox',
-  '--no-zygote',
-  '--single-process',
+  '--disable-setuid-sandbox',
   '--disable-dev-shm-usage',
+  '--remote-debugging-address=0.0.0.0',
 ];
 
 
@@ -102,7 +103,19 @@ async function auditURL(url: string, logger: ReturnType<typeof createLogger>): P
 
   logger.info('Starting auditURL for', url);
 const auditStart = Date.now();
-const chrome = await launch({ chromeFlags: CHROME_FLAGS });
+  // Launch Chrome with explicit path, flags, and host for Docker/K8s
+  const chrome = await launch({
+    chromePath: process.env.CHROME_PATH,
+    chromeFlags: CHROME_FLAGS,
+  });
+  logger.info('Chrome started on port', chrome.port);
+
+  // Ensure the DevTools endpoint is reachable – important when running in containers
+  try {
+    await fetch(`http://127.0.0.1:${chrome.port}/json/version`);
+  } catch (e) {
+    logger.error('DevTools endpoint not accessible:', e);
+  }
   const runs: Array<GtmMetric[]> = [];
   const numberOfRuns = 3;
 

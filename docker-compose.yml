@@ -1,18 +1,17 @@
 services:
   web:
-    image: node:20-bookworm   # matches your base
+    build:
+      context: .
+      dockerfile: Dockerfile.dev.chrome
     working_dir: /app
     command: sh -c "npm ci --no-audit --no-fund && npm run dev"
-    ports:
-      - "3000:3000"
+    ports: ["3000:3000"]
     environment:
       - PORT=3000
-      # helps file watching on macOS/WSL/VMs:
+      - CHROME_PATH=/usr/bin/google-chrome-stable
       - WATCHPACK_POLLING=true
-      # sometimes also helpful:
-      - CHOKIDAR_USEPOLLING=true
     volumes:
-      - .:/app:delegated         # your code live-mounted
-      - node_modules:/app/node_modules  # keep deps inside container
+      - .:/app:delegated
+      - node_modules:/app/node_modules
 volumes:
   node_modules:

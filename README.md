@@ -61,6 +61,10 @@ npm run dev     # http://localhost:3000
 # 3. Production build & start
 npm run build
 npm start
+
+# 4. Run with Docker (optional)
+docker compose up --build   # http://localhost:3000
+#   The image installs Google Chrome and sets CHROME_PATH automatically.
 ```
 
 ---
@@ -107,9 +111,9 @@ gtm-site-speed/
 | Setting | File | Description |
 |---------|------|-------------|
 | Performance thresholds | `app/page.tsx` → `getPerformanceStatus()` | Tweak warning / critical cut-offs |
-| Lighthouse flags | `app/api/audit/route.ts` | Edit `chromeFlags` array if Chrome fails to launch (e.g. replace `--headless=new` with `--headless`) |
+| Lighthouse flags | `app/api/audit/route.ts` | Defaults are tuned for Docker/Cloud Run (`--headless`, `--disable-gpu`, `--no-sandbox`, `--disable-setuid-sandbox`, `--disable-dev-shm-usage`, `--remote-debugging-address=0.0.0.0`).  If Chrome still fails to launch, double-check these flags. |
 | Tailwind theme colours | `tailwind.config.ts` | Uses CSS variables for easy theming |
-| Environment variables | `.env.local` (none required by default) |
+| Environment variables | `.env.local` (none required locally).  The Dockerfile already sets `CHROME_PATH=/usr/bin/google-chrome-stable`. |
 
 ---
 
@@ -164,7 +168,15 @@ Rules:
 
 ---
 
-## 9  Recent Changes (2025-08-03)
+## 9  Recent Changes
+
+### 2025-08-09
+- **Docker fixes** – Updated `CHROME_FLAGS` to include `--disable-gpu`, `--disable-setuid-sandbox`, and `--remote-debugging-address=0.0.0.0`, solving `Failed to fetch browser WebSocket URL / ECONNREFUSED` when running in containers.
+- **Health-check & logging** – `audit/route.ts` now logs the Chrome port and validates the DevTools `/json/version` endpoint, providing faster failure detection.
+- **Type fix** – Removed unsupported `host` option from `chrome-launcher` call.
+- **Docs** – Added Docker quick-start instructions and expanded configuration notes.
+
+### 2025-08-03
 
 ### API & Backend
 - **Structured logging added** – `audit/route.ts` now generates per-request UUIDs and logs start/end times, per-run durations, and averaged metrics.
